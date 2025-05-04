@@ -4,6 +4,9 @@ import json
 import pygame.mixer as mixer
 from audio_metadata import load as load_metadata
 from tinydb import TinyDB, Query
+from uuid import uuid4
+import threading
+from tinydb import where
 
 # --- Init ---
 mixer.init()
@@ -25,6 +28,12 @@ def play(music=None):
         mix.load(os.path.join(MUSIC_DIR, music))
         mix.play()
         state = 'playing'
+
+def playlist_handler(command,name=None):
+    if command == 'create':
+        db.insert({'playlist':name,'music':None})
+
+
 
 def stop():
     global state
@@ -54,16 +63,27 @@ def get_info():
     music = db.all()[current_track_index]['music_name']
     try:
         metadata = load_metadata(os.path.join(MUSIC_DIR, music))
-        duration_secs = metadata['streaminfo']['duration']
-        pos = mix.get_pos() // 1000
+        duration_secs = int(metadata['streaminfo']['duration'])
+        pos_secs = mix.get_pos() // 1000
+
+        # Format position
+        pos_minutes, pos_seconds = divmod(pos_secs, 60)
+        pos_formatted = f"{pos_minutes}:{pos_seconds:02d}"
+
+        # Format duration
+        dur_minutes, dur_seconds = divmod(duration_secs, 60)
+        dur_formatted = f"{dur_minutes}:{dur_seconds:02d}"
+
         return {
-            "duration": duration_secs,
-            "position": pos,
+            "duration": dur_formatted,
+            "position": pos_formatted,
             "state": state,
             "music": music
         }
     except:
         return {"state": "error"}
+
+
 
 # --- Playlist / DB ---
 def update_playlist():
@@ -72,10 +92,18 @@ def update_playlist():
         if filename.endswith('.mp3') and filename not in existing_files:
             try:
                 metadata = load_metadata(os.path.join(MUSIC_DIR, filename))
-                duration = metadata['streaminfo']['duration']
-                db.insert({"music_name": filename, "duration": duration})
+                duration_secs = int(metadata['streaminfo']['duration'])
+
+                dur_minutes, dur_seconds = divmod(duration_secs, 60)
+                dur_formatted = f"{dur_minutes}:{dur_seconds:02d}"
+
+                db.insert({
+                    "music_name": filename,
+                    "duration": dur_formatted
+                })
             except:
                 continue
+
 
 def get_playlist():
     return db.all()
@@ -89,34 +117,4 @@ def previous_track():
     global current_track_index
     current_track_index = (current_track_index - 1) % len(db)
     play()
-
-# --- Example CLI loop (or to be replaced by socket listener) ---
-if __name__ == "__main__":
-    update_playlist()
-    print("MCube Core Running. Type command:")
-    
-    while True:
-        cmd = input(">> ").strip().lower()
-        if cmd == "play":
-            play()
-        elif cmd == "pause":
-            pause()
-        elif cmd == "resume":
-            resume()
-        elif cmd == "stop":
-            stop()
-        elif cmd == "next":
-            next_track()
-        elif cmd == "prev":
-            previous_track()
-        elif cmd == "info":
-            print(json.dumps(get_info(), indent=2))
-        elif cmd == "list":
-            print(json.dumps(get_playlist(), indent=2))
-        elif cmd == "exit":
-            break
-        else:
-            print("Unknown command")
-
-    mix.quit()
 
